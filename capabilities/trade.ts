@@ -15,7 +15,11 @@ import type {
   CapabilityConfig,
   CapabilityContext,
 } from "../types/capability.js";
-import { relayClient, BASE_CHAIN_ID, BASE_CURRENCIES } from "./utils/relay-client.js";
+import {
+  relayClient,
+  BASE_CHAIN_ID,
+  BASE_CURRENCIES,
+} from "./utils/relay-client.js";
 import { resolveTickerToAddress } from "./utils/ticker-resolver.js";
 
 /*//////////////////////////////////////////////////////////////
@@ -184,7 +188,10 @@ export function createTradeCapability(
 
         console.log(`   ✅ Successfully retrieved private key`);
         console.log(
-          `   Key Preview: ${PRIVATE_KEY.substring(0, 10)}...${PRIVATE_KEY.substring(PRIVATE_KEY.length - 4)}`
+          `   Key Preview: ${PRIVATE_KEY.substring(
+            0,
+            10
+          )}...${PRIVATE_KEY.substring(PRIVATE_KEY.length - 4)}`
         );
 
         /*//////////////////////////////////////////////////////////////
@@ -234,7 +241,9 @@ export function createTradeCapability(
 
         console.log(`\n💱 Setting up swap:`);
         console.log(`   From: ${args.inputCurrency} (${fromCurrency})`);
-        console.log(`   To: ${resolvedToken.symbol} (${resolvedToken.address})`);
+        console.log(
+          `   To: ${resolvedToken.symbol} (${resolvedToken.address})`
+        );
         console.log(`   Amount: ${args.amount}`);
 
         /*//////////////////////////////////////////////////////////////
@@ -259,7 +268,10 @@ export function createTradeCapability(
             user: account.address,
             tradeType: "EXACT_INPUT",
             options: {
-              slippage: args.slippage ? parseFloat(args.slippage) : 2,
+              // Convert percentage to basis points (e.g., 2% = 200 basis points)
+              slippageTolerance: args.slippage
+                ? (parseFloat(args.slippage) * 100).toString()
+                : "200", // Default 2% = 200 basis points
             },
           });
 
@@ -268,10 +280,17 @@ export function createTradeCapability(
 
           // Log quote details safely
           if (quote && typeof quote === "object") {
-            const details = quote.details;
-            if (details) {
-              console.log(`      Expected Output: ${details.amountOut || "N/A"}`);
-              console.log(`      Price Impact: ${details.priceImpact || "N/A"}%`);
+            // Relay SDK quote structure - cast to any for flexible logging
+            const quoteData = quote as any;
+            if (quoteData.details) {
+              console.log(
+                `      Details: ${JSON.stringify(quoteData.details, null, 2)}`
+              );
+            }
+            if (quoteData.fees) {
+              console.log(
+                `      Fees: ${JSON.stringify(quoteData.fees, null, 2)}`
+              );
             }
           }
 

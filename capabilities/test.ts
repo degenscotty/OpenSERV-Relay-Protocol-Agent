@@ -104,13 +104,17 @@ export function createTestCapability(
         // Convert 1 ETH to wei
         const amountInWei = BigInt(1e18).toString(); // 1 ETH = 1e18 wei
 
+        // Use a dummy address for testing (needs a valid address format)
+        const testAddress = "0x0000000000000000000000000000000000000001";
+        
         const quote = await relayClient.actions.getQuote({
           chainId: BASE_CHAIN_ID,
           toChainId: BASE_CHAIN_ID,
           currency: BASE_CURRENCIES.ETH,
           toCurrency: resolvedToken.address,
           amount: amountInWei,
-          user: "0x0000000000000000000000000000000000000000", // Dummy address for quote
+          user: testAddress,
+          recipient: testAddress, // Required by Relay Protocol
           tradeType: "EXACT_INPUT",
         });
 
@@ -119,24 +123,18 @@ export function createTestCapability(
 
         // Extract quote details (quote structure may vary)
         const quoteData = quote as any;
-        const steps = quoteData?.steps || [];
+        const details = quoteData?.details;
+        const fees = quoteData?.fees;
 
-        console.log(`📋 Quote Details:`);
-        console.log(`   From: 1 ETH`);
-        console.log(`   To: ${ticker}`);
-        console.log(`   Route Steps: ${steps.length}`);
-
-        if (steps.length > 0) {
-          console.log(`\n🔀 Route:`);
-          steps.forEach((step: any, index: number) => {
-            console.log(
-              `   ${index + 1}. ${step.id || step.action || "Swap step"}`
-            );
-          });
-        }
-
-        console.log(`\n📦 Full Quote:`);
-        console.log(JSON.stringify(quoteData, null, 2));
+        console.log(`📋 Quote Summary:`);
+        console.log(`   Input: 1 ETH ($${details?.currencyIn?.amountUsd || 'N/A'})`);
+        console.log(`   Output: ${details?.currencyOut?.amountFormatted || 'N/A'} ${ticker}`);
+        console.log(`   Output USD: $${details?.currencyOut?.amountUsd || 'N/A'}`);
+        console.log(`   Rate: ${details?.rate || 'N/A'} ${ticker} per ETH`);
+        console.log(`   Price Impact: ${details?.totalImpact?.percent || 'N/A'}%`);
+        console.log(`   Gas Fee: ${fees?.gas?.amountFormatted || 'N/A'} ETH ($${fees?.gas?.amountUsd || 'N/A'})`);
+        console.log(`   Router: ${details?.route?.origin?.router || 'N/A'}`);
+        console.log(`   Time Estimate: ~${details?.timeEstimate || 'N/A'}s`);
         console.log(`========================================\n`);
 
         /*//////////////////////////////////////////////////////////////
