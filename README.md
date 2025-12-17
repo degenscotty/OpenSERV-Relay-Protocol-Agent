@@ -45,6 +45,7 @@ BASE_RPC_URL=https://mainnet.base.org
 In your OpenServ workspace, add a secret containing your Base wallet private key:
 
 #### Example Secret Names:
+
 - **relay_key**: Your Base wallet private key (e.g., `0xabc123...`)
 - **base_wallet**: Alternative naming
 - **BASE_PRIVATE_KEY**: Another option
@@ -95,6 +96,7 @@ ngrok http 7380
 Swaps ETH or USDC for any token on Base chain.
 
 **Parameters:**
+
 - `ticker` (string): Token symbol to buy (e.g., "SERV", "DEGEN", "$BRETT")
 - `amount` (string): Amount of ETH or USDC to spend (e.g., "0.1", "10")
 - `inputCurrency` (enum): "ETH" or "USDC"
@@ -102,6 +104,7 @@ Swaps ETH or USDC for any token on Base chain.
 - `pk_name` (string): Secret name containing the private key (e.g., "relay_key")
 
 **Example - Direct POST:**
+
 ```bash
 curl -X POST http://localhost:7380/tools/trade_token \
   -H 'Content-Type: application/json' \
@@ -117,6 +120,7 @@ curl -X POST http://localhost:7380/tools/trade_token \
 ```
 
 **Example - OpenServ Trigger:**
+
 ```json
 {
   "event": {
@@ -197,6 +201,7 @@ flowchart TD
 ```
 
 **Supported Ticker Formats:**
+
 - `SERV` - Plain symbol
 - `$SERV` - With dollar sign (automatically stripped)
 - `serv` - Case insensitive
@@ -241,20 +246,24 @@ If you specify a secret name that doesn't exist, you'll get a helpful error list
 ## Troubleshooting
 
 ### "Could not find token address"
+
 - Check ticker spelling (e.g., "DEGEN" not "degen")
 - Verify the token exists on Base chain
 - Try with `$` prefix: `$SERV`
 
 ### "Insufficient balance"
+
 - Add ETH to your Base wallet for gas
 - Ensure you have enough ETH or USDC for the swap amount
 
 ### "Quote or execution failed"
+
 - Increase slippage tolerance (volatile tokens need 3-5%)
 - Check that the token has sufficient liquidity on Base
 - Verify your wallet has ETH for gas
 
 ### "Secret not found"
+
 - Check the secret name in your OpenServ workspace
 - Ensure the secret contains a valid private key starting with `0x`
 - The error will list all available secret names
@@ -262,12 +271,14 @@ If you specify a secret name that doesn't exist, you'll get a helpful error list
 ## Supported Tokens
 
 **Major Tokens** (via Relay Protocol list):
+
 - ETH (native)
 - USDC, USDT
 - WETH, cbETH
 - And many more...
 
 **New/Meme Tokens** (via DexScreener fallback):
+
 - DEGEN
 - BRETT
 - TOSHI
@@ -314,6 +325,26 @@ See `capabilities/test.ts` for a simple example.
 
 ### Testing Locally
 
+#### Option 1: Quick Quote Testing (No Server Required)
+
+Test ticker resolution and get quotes without starting the full agent server:
+
+```bash
+npx tsx test-capability.ts
+```
+
+This will:
+
+- ✅ Resolve token tickers (BRETT, KUDAI, SERV, etc.)
+- ✅ Fetch real quotes from Relay Protocol
+- ✅ Show clean output with rates, price impact, and gas fees
+- ✅ No wallet or secrets needed (uses dummy addresses)
+
+**Edit test tokens:**
+Modify `TEST_CASES` in `test-capability.ts` to test different tokens.
+
+#### Option 2: Full Server Testing
+
 ```bash
 # Start the agent
 npm start
@@ -321,7 +352,7 @@ npm start
 # In another terminal, test with curl
 curl -X POST http://localhost:7380/tools/test \
   -H 'Content-Type: application/json' \
-  -d '{"args": {"message": "Hello"}}'
+  -d '{"args": {"ticker": "DEGEN"}}'
 ```
 
 ## License
