@@ -1,21 +1,29 @@
-# Hyperliquid Trading Agent
+# Relay Protocol Trading Agent
 
-An OpenServ agent for executing leverage trades on Hyperliquid perpetual futures.
+An OpenServ agent for executing token swaps on Base chain using Relay Protocol.
 
 ## Features
 
-- 🔥 **Leverage Trading**: Long/short perpetual futures with leverage
+- 🔄 **Token Swaps**: Buy any token on Base with ETH or USDC
+- 🎯 **Intelligent Ticker Resolution**: Automatically resolves tickers like "$SERV" to contract addresses
 - 🔐 **Secure Credentials**: Fetches private keys from OpenServ secrets
-- ⚡ **Market Orders**: IoC orders for immediate execution
-- 💰 **Vault Support**: Trade via Hyperliquid vaults
-- 🧪 **Testnet Support**: Test strategies on testnet
+- 🌐 **Relay Protocol**: Best execution across DEXs on Base
+- 💡 **Natural Language**: Trade using simple commands like "Buy 0.1 ETH worth of DEGEN"
+
+## How It Works
+
+The agent uses a **hybrid ticker resolution** system:
+
+1. **Primary**: Queries Relay Protocol's token list for major/verified tokens
+2. **Fallback**: Queries DexScreener for new/meme tokens not yet in Relay's list
+3. **Execution**: Routes trades through Relay Protocol for best prices
 
 ## Setup
 
 ### 1. Install Dependencies
 
 ```bash
-cd hyperliquid-agent
+cd relay-protocol-agent
 npm install
 ```
 
@@ -29,20 +37,21 @@ OPENSERV_API_KEY=your_openserv_api_key_here
 
 # Optional
 PORT=7380
-HYPERLIQUID_TESTNET=false  # set to 'true' for testnet
+BASE_RPC_URL=https://mainnet.base.org
 ```
 
 ### 3. Configure OpenServ Secrets
 
-In your OpenServ workspace, add secrets with **any names you prefer**. You'll reference these names in the `pk_name` and `vault_name` parameters when trading.
+In your OpenServ workspace, add a secret containing your Base wallet private key:
 
-#### Examples:
-- **hl_key1**: Your primary wallet private key (e.g., `0xabc123...`)
-- **hl_key2**: Your secondary wallet private key
-- **hl_vault1**: Vault address if trading via vault (e.g., `0xdef456...`)
-- **HYPERLIQUID_PRIVATE_KEY**: Alternative naming (any name works!)
+#### Example Secret Names:
+- **relay_key**: Your Base wallet private key (e.g., `0xabc123...`)
+- **base_wallet**: Alternative naming
+- **BASE_PRIVATE_KEY**: Another option
 
-The agent is **completely dynamic** - you can use any secret names you want!
+**Important**: You can use **any secret name** you want! Just reference it in the `pk_name` parameter when trading.
+
+⚠️ **Security**: Your wallet needs ETH on Base for gas fees. The agent will never expose your private key.
 
 ## Running the Agent
 
@@ -54,83 +63,55 @@ The agent will start on port **7380** (or the port you specify in `.env`).
 
 ## Expose Locally with ngrok
 
-If you want to receive webhooks or access your local agent from the internet, you can expose it securely using ngrok.
+If you want to access your local agent from the internet:
 
-1. Install ngrok
-   - macOS (Homebrew):
+1. Install ngrok:
 
 ```bash
+# macOS (Homebrew)
 brew install ngrok/ngrok/ngrok
+
+# Or download from ngrok.com
 ```
 
-   - Or download from the ngrok website: [ngrok](https://ngrok.com/)
-
-2. (Recommended) Authenticate with your ngrok authtoken so you get stable, higher‑limit tunnels:
+2. Authenticate with ngrok (optional but recommended):
 
 ```bash
 ngrok config add-authtoken <your_ngrok_authtoken>
 ```
 
-3. Start a tunnel to the agent's port:
+3. Start a tunnel:
 
 ```bash
-# If you set a custom PORT in .env
-ngrok http $PORT
-
-# Otherwise (default 7380)
 ngrok http 7380
 ```
 
-4. Copy the public URL shown by ngrok (e.g., `https://<id>.ngrok-free.app`) and use it to call your endpoints:
-
-```bash
-# Test capability
-curl -X POST https://<id>.ngrok-free.app/tools/test \
-  -H 'Content-Type: application/json' \
-  -d '{"args": {"message": "Hello Hyperliquid"}}'
-
-# Trade capability (example)
-curl -X POST https://<id>.ngrok-free.app/tools/trade \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "args": {
-      "coin": "BTC",
-      "side": "buy",
-      "size": "0.01",
-      "leverage": "5",
-      "pk_name": "hl_key1"
-    }
-  }'
-```
-
-Keep the ngrok process running while you need the public URL. For production-grade exposure, add authentication in front of the agent or deploy behind a secure gateway.
+4. Use the public URL (e.g., `https://<id>.ngrok-free.app`) to call your endpoints.
 
 ## Capabilities
 
-### `trade`
+### `trade_token`
 
-Places leverage buy/sell orders on Hyperliquid perpetuals.
+Swaps ETH or USDC for any token on Base chain.
 
 **Parameters:**
-- `coin` (string): Coin symbol (e.g., "BTC", "ETH", "SOL")
-- `side` (enum): "buy" (long) or "sell" (short)
-- `size` (string): Position size in coin units (e.g., "0.1")
-- `leverage` (string, optional): Leverage multiplier (e.g., "5" for 5x)
-- `reduceOnly` (boolean, optional): Whether to only reduce position (default: false)
-- `pk_name` (string): **Secret name** containing the private key (e.g., "hl_key1", "HYPERLIQUID_PRIVATE_KEY")
-- `vault_name` (string, optional): **Secret name** containing the vault address (e.g., "hl_vault1")
+- `ticker` (string): Token symbol to buy (e.g., "SERV", "DEGEN", "$BRETT")
+- `amount` (string): Amount of ETH or USDC to spend (e.g., "0.1", "10")
+- `inputCurrency` (enum): "ETH" or "USDC"
+- `slippage` (string, optional): Slippage tolerance percentage (default: "2")
+- `pk_name` (string): Secret name containing the private key (e.g., "relay_key")
 
 **Example - Direct POST:**
 ```bash
-curl -X POST http://localhost:7380/tools/trade \
+curl -X POST http://localhost:7380/tools/trade_token \
   -H 'Content-Type: application/json' \
   -d '{
     "args": {
-      "coin": "BTC",
-      "side": "buy",
-      "size": "0.01",
-      "leverage": "5",
-      "pk_name": "hl_key1"
+      "ticker": "DEGEN",
+      "amount": "0.1",
+      "inputCurrency": "ETH",
+      "slippage": "2",
+      "pk_name": "relay_key"
     }
   }'
 ```
@@ -139,13 +120,12 @@ curl -X POST http://localhost:7380/tools/trade \
 ```json
 {
   "event": {
-    "coin": "ETH",
-    "side": "sell",
-    "size": "0.1",
-    "leverage": "3",
-    "pk_name": "HYPERLIQUID_PRIVATE_KEY"
+    "ticker": "SERV",
+    "amount": "0.05",
+    "inputCurrency": "ETH",
+    "pk_name": "base_wallet"
   },
-  "summary": "Short 0.1 ETH with 3x leverage"
+  "summary": "Buy SERV with 0.05 ETH"
 }
 ```
 
@@ -156,147 +136,194 @@ Simple test capability to verify the agent is working.
 ```bash
 curl -X POST http://localhost:7380/tools/test \
   -H 'Content-Type: application/json' \
-  -d '{"args": {"message": "Hello Hyperliquid"}}'
+  -d '{"args": {"message": "Hello Relay Protocol"}}'
 ```
 
-## How It Works
+## Trade Examples
 
-1. **Fetches Credentials**: Securely retrieves private key from OpenServ secrets using `pk_name` parameter
-2. **Initializes Client**: Creates Hyperliquid ExchangeClient with your wallet
-3. **Gets Market Data**: Fetches current price for the specified coin
-4. **Sets Leverage**: Updates account leverage if specified
-5. **Gets Asset Metadata**: Retrieves tick size and decimals for the asset
-6. **Calculates Price**: Rounds price to valid tick size for exchange acceptance
-7. **Places Order**: Executes IoC (Immediate-or-Cancel) order for market-like execution
-8. **Returns Result**: Detailed response with fill price, order ID, etc.
+### Buy Major Token (DEGEN on Base)
 
-## Network Selection
+Uses Relay Protocol's verified token list:
 
-### Mainnet (default)
-Set in `.env`:
-```
-HYPERLIQUID_TESTNET=false
+```json
+{
+  "ticker": "DEGEN",
+  "amount": "0.1",
+  "inputCurrency": "ETH",
+  "pk_name": "relay_key"
+}
 ```
 
-### Testnet
-Set in `.env`:
+### Buy Meme Token with USDC
+
+Falls back to DexScreener if not in Relay's list:
+
+```json
+{
+  "ticker": "$BRETT",
+  "amount": "10",
+  "inputCurrency": "USDC",
+  "slippage": "3",
+  "pk_name": "relay_key"
+}
 ```
-HYPERLIQUID_TESTNET=true
+
+### Buy with Custom Slippage
+
+Higher slippage for volatile tokens:
+
+```json
+{
+  "ticker": "BASED",
+  "amount": "0.05",
+  "inputCurrency": "ETH",
+  "slippage": "5",
+  "pk_name": "relay_key"
+}
 ```
 
-Make sure your private key corresponds to a wallet on the correct network!
+## How Ticker Resolution Works
 
-## Multiple Wallets / Accounts
+```mermaid
+flowchart TD
+    Input[User: Buy SERV] --> Normalize[Normalize Ticker]
+    Normalize --> RelayCheck[Query Relay Token List]
+    RelayCheck -->|Found| Return1[Return Token Info]
+    RelayCheck -->|Not Found| DexScreener[Query DexScreener API]
+    DexScreener -->|Found on Base| Return2[Return Token Info]
+    DexScreener -->|Not Found| Error[Error: Token Not Found]
+    Return1 --> Trade[Execute Trade via Relay]
+    Return2 --> Trade
+```
 
-The agent supports **dynamic wallet selection** via the `pk_name` parameter. This allows you to:
+**Supported Ticker Formats:**
+- `SERV` - Plain symbol
+- `$SERV` - With dollar sign (automatically stripped)
+- `serv` - Case insensitive
 
-- **Trade with multiple wallets** from the same agent
-- **Use custom secret names** (no hardcoded names!)
-- **Easily switch between accounts** per trade
+## Trade Execution Flow
 
-### Setup Multiple Wallets:
+1. **Fetch Credentials**: Retrieves private key from OpenServ secrets
+2. **Initialize Wallet**: Creates viem wallet client for Base chain
+3. **Resolve Ticker**: Finds token contract address using hybrid resolver
+4. **Get Quote**: Queries Relay Protocol for best swap route
+5. **Execute Swap**: Signs and submits transaction on Base
+6. **Return Result**: Provides transaction hash and explorer link
 
-1. Go to your OpenServ workspace
-2. Add secrets with descriptive names:
-   - `hl_main_wallet` - Your primary trading wallet
-   - `hl_test_wallet` - Your testnet wallet
-   - `hl_bot_1`, `hl_bot_2` - Multiple bot wallets
-   - Any names you prefer!
-3. Pass the secret name in `pk_name` when trading
+## Base Chain Information
+
+- **Chain ID**: 8453
+- **Chain Name**: Base
+- **Native Currency**: ETH
+- **USDC Address**: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
+- **Block Explorer**: https://basescan.org
+
+## Multiple Wallets
+
+The agent supports **dynamic wallet selection** via the `pk_name` parameter:
+
+1. Add multiple secrets in your OpenServ workspace:
+   - `relay_wallet_1` - Your primary trading wallet
+   - `relay_wallet_2` - Your secondary wallet
+   - `test_wallet` - Your testnet wallet
+2. Pass the secret name in `pk_name` when trading
 
 If you specify a secret name that doesn't exist, you'll get a helpful error listing all available secrets.
-
-## Trading via Vault
-
-To trade via a Hyperliquid vault:
-
-1. Add a secret with your vault address (e.g., `hl_vault1`)
-2. Set the value to your vault address (e.g., `0x...`)
-3. Pass the secret name in `vault_name` when trading
-
-## Example Trade Scenarios
-
-### Long BTC with 10x Leverage
-```json
-{
-  "coin": "BTC",
-  "side": "buy",
-  "size": "0.05",
-  "leverage": "10",
-  "pk_name": "hl_main_wallet"
-}
-```
-
-### Short ETH with 5x Leverage (using different wallet)
-```json
-{
-  "coin": "ETH",
-  "side": "sell",
-  "size": "0.2",
-  "leverage": "5",
-  "pk_name": "hl_bot_1"
-}
-```
-
-### Close Position (Reduce Only)
-```json
-{
-  "coin": "BTC",
-  "side": "sell",
-  "size": "0.05",
-  "reduceOnly": true,
-  "pk_name": "hl_main_wallet"
-}
-```
-
-### Trade via Vault
-```json
-{
-  "coin": "SOL",
-  "side": "buy",
-  "size": "1.0",
-  "leverage": "3",
-  "pk_name": "hl_vault_manager",
-  "vault_name": "hl_vault1"
-}
-```
-
-## Supported Coins
-
-Hyperliquid supports many perpetual markets including:
-- **Major**: BTC, ETH, SOL, BNB, XRP, DOGE, ADA, AVAX
-- **Altcoins**: LINK, MATIC, UNI, ATOM, and many more
-- Check [Hyperliquid](https://app.hyperliquid.xyz/) for the full list
 
 ## Security Notes
 
 - **Never expose your private key** - always store it in OpenServ secrets
-- Use **testnet first** to test strategies
-- Start with **small sizes** and low leverage
-- Always understand the **liquidation risk** with leverage trading
+- Your wallet needs **ETH on Base** for gas fees
+- Start with **small amounts** to test
+- Use appropriate **slippage tolerance** (2-5% recommended)
+- The agent only has access to secrets you explicitly add to your OpenServ workspace
 
 ## Troubleshooting
 
-### "Asset not found"
-- Check coin symbol spelling (case-sensitive: "BTC" not "btc")
-- Verify the coin is available on Hyperliquid
+### "Could not find token address"
+- Check ticker spelling (e.g., "DEGEN" not "degen")
+- Verify the token exists on Base chain
+- Try with `$` prefix: `$SERV`
 
 ### "Insufficient balance"
-- Add funds to your Hyperliquid wallet
-- Bridge USDC to Arbitrum (Hyperliquid's L1)
+- Add ETH to your Base wallet for gas
+- Ensure you have enough ETH or USDC for the swap amount
 
-### "Order failed"
-- Check your account has sufficient margin
-- Verify leverage settings aren't too high
-- Ensure order size meets minimum requirements
+### "Quote or execution failed"
+- Increase slippage tolerance (volatile tokens need 3-5%)
+- Check that the token has sufficient liquidity on Base
+- Verify your wallet has ETH for gas
+
+### "Secret not found"
+- Check the secret name in your OpenServ workspace
+- Ensure the secret contains a valid private key starting with `0x`
+- The error will list all available secret names
+
+## Supported Tokens
+
+**Major Tokens** (via Relay Protocol list):
+- ETH (native)
+- USDC, USDT
+- WETH, cbETH
+- And many more...
+
+**New/Meme Tokens** (via DexScreener fallback):
+- DEGEN
+- BRETT
+- TOSHI
+- And thousands more...
+
+If a token is tradeable on Base DEXs, this agent can likely find and trade it!
 
 ## Learn More
 
-- [Hyperliquid Docs](https://hyperliquid.gitbook.io/)
-- [Hyperliquid SDK](https://github.com/nktkas/hyperliquid)
+- [Relay Protocol Docs](https://docs.relay.link/)
+- [Relay Protocol SDK](https://docs.relay.link/references/sdk/getting-started)
+- [Base Chain](https://base.org/)
 - [OpenServ Platform](https://openserv.ai/)
+- [DexScreener API](https://docs.dexscreener.com/)
+
+## Architecture
+
+The agent uses a **modular capability system**:
+
+```
+relay-protocol-agent/
+├── agent-server.ts          # Main server and agent initialization
+├── capabilities/
+│   ├── index.ts            # Capability registry
+│   ├── test.ts             # Test capability
+│   ├── trade.ts            # Main trading capability
+│   └── utils/
+│       ├── relay-client.ts     # Relay Protocol client setup
+│       └── ticker-resolver.ts  # Ticker resolution logic
+├── types/
+│   └── capability.ts       # Shared types
+└── package.json            # Dependencies
+```
+
+## Development
+
+### Adding New Capabilities
+
+1. Create a new file in `capabilities/`
+2. Export a `create[Name]Capability` function
+3. Register it in `capabilities/index.ts`
+
+See `capabilities/test.ts` for a simple example.
+
+### Testing Locally
+
+```bash
+# Start the agent
+npm start
+
+# In another terminal, test with curl
+curl -X POST http://localhost:7380/tools/test \
+  -H 'Content-Type: application/json' \
+  -d '{"args": {"message": "Hello"}}'
+```
 
 ## License
 
 ISC
-

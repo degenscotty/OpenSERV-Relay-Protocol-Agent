@@ -1,21 +1,25 @@
 /**
- * Trade Capability - Hyperliquid Leverage Trading
- * Places leverage buy/sell orders on Hyperliquid perpetual futures
+ * Trade Capability - Relay Protocol Token Swaps
+ * Executes token swaps on Base chain using Relay Protocol
  */
 
 /*//////////////////////////////////////////////////////////////
-                               IMPORTS
+                            IMPORTS
 //////////////////////////////////////////////////////////////*/
 
 import { z } from "zod";
-import * as hl from "@nktkas/hyperliquid";
+import { createWalletClient, http, type Address } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { base } from "viem/chains";
 import type {
   CapabilityConfig,
   CapabilityContext,
 } from "../types/capability.js";
+import { relayClient, BASE_CHAIN_ID, BASE_CURRENCIES } from "./utils/relay-client.js";
+import { resolveTickerToAddress } from "./utils/ticker-resolver.js";
 
 /*//////////////////////////////////////////////////////////////
-                         FUNCTION DEFINITION
+                      FUNCTION DEFINITION
 //////////////////////////////////////////////////////////////*/
 
 export function createTradeCapability(
@@ -24,80 +28,64 @@ export function createTradeCapability(
   const { env } = context;
 
   /*//////////////////////////////////////////////////////////////
-                           CAPABILITY CONFIG
+                        CAPABILITY CONFIG
   //////////////////////////////////////////////////////////////*/
 
   return {
-    name: "trade",
+    name: "trade_token",
     description:
-      "Place a leverage trade on Hyperliquid perpetuals (e.g., BTC, ETH)",
+      "Swap ETH or USDC for a specific token on Base chain using Relay Protocol",
 
     /*//////////////////////////////////////////////////////////////
-                            SCHEMA DEFINITION
+                        SCHEMA DEFINITION
     //////////////////////////////////////////////////////////////*/
 
     schema: z.object({
-      coin: z.string().describe('Coin symbol (e.g., "BTC", "ETH", "SOL")'),
-      side: z
-        .enum(["buy", "sell"])
-        .describe("Trade side: buy (long) or sell (short)"),
-      size: z
+      ticker: z
         .string()
-        .describe('Position size in coin units (e.g., "0.1" for 0.1 BTC)'),
-      leverage: z
+        .describe('Token symbol to buy (e.g., "SERV", "DEGEN", "$BRETT")'),
+      amount: z
+        .string()
+        .describe('Amount of ETH or USDC to spend (e.g., "0.1", "10")'),
+      inputCurrency: z
+        .enum(["ETH", "USDC"])
+        .describe("Currency to spend: ETH or USDC"),
+      slippage: z
         .string()
         .optional()
-        .describe(
-          'Leverage multiplier (e.g., "5" for 5x, default: account leverage)'
-        ),
-      reduceOnly: z
-        .boolean()
-        .optional()
-        .describe(
-          "Whether this is a reduce-only order (close position, default: false)"
-        ),
+        .describe("Slippage tolerance percentage (default: 2)"),
       pk_name: z
         .string()
         .describe(
-          'Secret name containing the private key (e.g., "hl_key1", "HYPERLIQUID_PRIVATE_KEY")'
-        ),
-      vault_name: z
-        .string()
-        .optional()
-        .describe(
-          'Secret name containing the vault address (e.g., "hl_vault1", optional)'
+          'Secret name containing the private key (e.g., "relay_key", "BASE_PRIVATE_KEY")'
         ),
     }),
 
     /*//////////////////////////////////////////////////////////////
-                              RUN FUNCTION
+                          RUN FUNCTION
     //////////////////////////////////////////////////////////////*/
 
     async run({ args, action }) {
       try {
         /*//////////////////////////////////////////////////////////////
-                             TRADE EXECUTION
+                          TRADE INITIALIZATION
         //////////////////////////////////////////////////////////////*/
 
         console.log("\n========================================");
-        console.log("⚡ HYPERLIQUID LEVERAGE TRADE");
+        console.log("⚡ RELAY PROTOCOL TOKEN SWAP");
         console.log("========================================");
-        console.log(`📊 Trade Details:`);
-        console.log(`   Coin: ${args.coin}`);
-        console.log(`   Side: ${args.side.toUpperCase()}`);
-        console.log(`   Size: ${args.size}`);
-        console.log(`   Leverage: ${args.leverage || "Default"}`);
-        console.log(`   Reduce Only: ${args.reduceOnly || false}`);
+        console.log(`📊 Swap Details:`);
+        console.log(`   Token: ${args.ticker}`);
+        console.log(`   Amount: ${args.amount} ${args.inputCurrency}`);
+        console.log(`   Input Currency: ${args.inputCurrency}`);
+        console.log(`   Slippage: ${args.slippage || "2"}%`);
         console.log(`   Private Key Secret: ${args.pk_name}`);
-        if (args.vault_name) {
-          console.log(`   Vault Secret: ${args.vault_name}`);
-        }
+        console.log(`   Chain: Base`);
 
         /*//////////////////////////////////////////////////////////////
-                            CREDENTIAL FETCHING
+                        CREDENTIAL FETCHING
         //////////////////////////////////////////////////////////////*/
 
-        // Fetch credentials from OpenServ secrets
         const workspaceId = action?.workspace?.id;
         if (!workspaceId) {
           console.error("\n❌ Workspace ID not found in action context");
@@ -146,13 +134,10 @@ export function createTradeCapability(
         const secrets = await secretsListResponse.json();
         console.log(`   Found ${secrets.length} secrets in workspace`);
 
-        // Find required secrets using dynamic names
+        // Find required private key secret
         const privateKeySecret = secrets.find(
           (s: any) => s.name === args.pk_name
         );
-        const vaultAddressSecret = args.vault_name
-          ? secrets.find((s: any) => s.name === args.vault_name)
-          : undefined;
 
         if (!privateKeySecret) {
           const availableSecrets = secrets.map((s: any) => s.name).join(", ");
@@ -168,20 +153,9 @@ export function createTradeCapability(
         console.log(
           `   ✅ Found "${args.pk_name}" (ID: ${privateKeySecret.id})`
         );
-        if (args.vault_name) {
-          if (vaultAddressSecret) {
-            console.log(
-              `   ✅ Found "${args.vault_name}" (ID: ${vaultAddressSecret.id})`
-            );
-          } else {
-            console.log(
-              `   ⚠️  Vault secret "${args.vault_name}" not found, continuing without vault`
-            );
-          }
-        }
 
-        // Fetch secret values
-        console.log(`\n🔑 Fetching secret values...`);
+        // Fetch secret value
+        console.log(`\n🔑 Fetching private key...`);
 
         const privateKeyResponse = await fetch(
           `${OPENSERV_API_URL}/workspaces/${workspaceId}/agent-secrets/${privateKeySecret.id}/value`,
@@ -203,289 +177,160 @@ export function createTradeCapability(
           });
         }
 
-        // Parse secret values (API returns plain text strings)
         const PRIVATE_KEY = (await privateKeyResponse.text()).replace(
           /^"|"$/g,
           ""
-        );
+        ) as `0x${string}`;
 
-        let VAULT_ADDRESS: string | undefined;
-        if (vaultAddressSecret) {
-          const vaultResponse = await fetch(
-            `${OPENSERV_API_URL}/workspaces/${workspaceId}/agent-secrets/${vaultAddressSecret.id}/value`,
-            {
-              headers: {
-                accept: "application/json",
-                "x-openserv-key": OPENSERV_API_KEY,
-              },
-            }
-          );
-          if (vaultResponse.ok) {
-            VAULT_ADDRESS = (await vaultResponse.text()).replace(/^"|"$/g, "");
-          }
-        }
-
-        const IS_TESTNET = env.HYPERLIQUID_TESTNET === "true";
-
-        console.log(`   ✅ Successfully retrieved credentials`);
+        console.log(`   ✅ Successfully retrieved private key`);
         console.log(
-          `   Private Key: ${PRIVATE_KEY.substring(
-            0,
-            10
-          )}...${PRIVATE_KEY.substring(PRIVATE_KEY.length - 4)}`
+          `   Key Preview: ${PRIVATE_KEY.substring(0, 10)}...${PRIVATE_KEY.substring(PRIVATE_KEY.length - 4)}`
         );
-        if (VAULT_ADDRESS) {
-          console.log(`   Vault Address: ${VAULT_ADDRESS}`);
-        }
-        console.log(`   Network: ${IS_TESTNET ? "Testnet" : "Mainnet"}`);
 
         /*//////////////////////////////////////////////////////////////
-                          CLIENT INITIALIZATION
+                        WALLET INITIALIZATION
         //////////////////////////////////////////////////////////////*/
 
-        // Initialize Hyperliquid client
-        console.log(`\n🔗 Initializing Hyperliquid Client...`);
+        console.log(`\n👛 Initializing wallet...`);
 
-        const transport = new hl.HttpTransport({
-          isTestnet: IS_TESTNET,
-          timeout: 30000,
+        const account = privateKeyToAccount(PRIVATE_KEY);
+        const walletClient = createWalletClient({
+          account,
+          chain: base,
+          transport: http(),
         });
 
-        const exchClient = new hl.ExchangeClient({
-          transport,
-          wallet: PRIVATE_KEY,
-          defaultVaultAddress: VAULT_ADDRESS as `0x${string}` | undefined,
-        });
-
-        console.log(`   ✅ Client initialized`);
+        console.log(`   ✅ Wallet address: ${account.address}`);
 
         /*//////////////////////////////////////////////////////////////
-                           MARKET DATA FETCHING
+                        TICKER RESOLUTION
         //////////////////////////////////////////////////////////////*/
 
-        // Get current market price
-        console.log(`\n💹 Fetching market data for ${args.coin}...`);
+        const resolvedToken = await resolveTickerToAddress(args.ticker);
 
-        const infoClient = new hl.InfoClient({ transport });
-        const allMids = await infoClient.allMids();
-        const coinPrice = allMids[args.coin];
-
-        if (!coinPrice) {
-          console.error(
-            `❌ Coin "${args.coin}" not found or no price available`
-          );
+        if (!resolvedToken) {
+          console.error(`\n❌ Could not resolve ticker: ${args.ticker}`);
           return JSON.stringify({
-            error: `Coin "${args.coin}" not found. Check symbol (e.g., "BTC", "ETH")`,
+            error: `Could not find token address for "${args.ticker}" on Base chain`,
             success: false,
           });
         }
 
-        console.log(`   Current ${args.coin} price: $${coinPrice}`);
+        console.log(`\n✅ Token Resolved:`);
+        console.log(`   Symbol: ${resolvedToken.symbol}`);
+        console.log(`   Address: ${resolvedToken.address}`);
+        console.log(`   Name: ${resolvedToken.name || "Unknown"}`);
+        console.log(`   Decimals: ${resolvedToken.decimals}`);
+        console.log(`   Source: ${resolvedToken.source}`);
 
         /*//////////////////////////////////////////////////////////////
-                            LEVERAGE UPDATE
+                        INPUT CURRENCY MAPPING
         //////////////////////////////////////////////////////////////*/
 
-        // Update leverage if specified
-        if (args.leverage) {
-          console.log(`\n⚙️  Setting leverage to ${args.leverage}x...`);
-          try {
-            const meta = await infoClient.meta();
-            const assetIndex = meta.universe.findIndex(
-              (u) => u.name === args.coin
-            );
+        const fromCurrency =
+          args.inputCurrency === "ETH"
+            ? BASE_CURRENCIES.ETH
+            : BASE_CURRENCIES.USDC;
 
-            if (assetIndex === -1) {
-              console.error(`❌ Could not find asset index for ${args.coin}`);
-              return JSON.stringify({
-                error: `Asset ${args.coin} not found in universe`,
-                success: false,
-              });
-            }
-
-            await exchClient.updateLeverage({
-              asset: assetIndex,
-              isCross: true,
-              leverage: parseInt(args.leverage),
-            });
-            console.log(`   ✅ Leverage updated to ${args.leverage}x`);
-          } catch (leverageError: any) {
-            console.log(
-              `   ⚠️  Leverage update failed: ${leverageError.message}`
-            );
-            console.log(`   Continuing with current account leverage...`);
-          }
-        }
+        console.log(`\n💱 Setting up swap:`);
+        console.log(`   From: ${args.inputCurrency} (${fromCurrency})`);
+        console.log(`   To: ${resolvedToken.symbol} (${resolvedToken.address})`);
+        console.log(`   Amount: ${args.amount}`);
 
         /*//////////////////////////////////////////////////////////////
-                          ASSET METADATA FETCHING
+                            GET SWAP QUOTE
         //////////////////////////////////////////////////////////////*/
 
-        // Get asset metadata and index
-        const meta = await infoClient.meta();
-        const assetIndex = meta.universe.findIndex((u) => u.name === args.coin);
+        console.log(`\n📊 Fetching swap quote from Relay Protocol...`);
 
-        if (assetIndex === -1) {
-          console.error(`❌ Could not find asset index for ${args.coin}`);
-          return JSON.stringify({
-            error: `Asset ${args.coin} not found`,
-            success: false,
-          });
-        }
+        // Convert amount to wei/smallest unit based on input currency
+        const amountInWei =
+          args.inputCurrency === "ETH"
+            ? BigInt(Math.floor(parseFloat(args.amount) * 1e18)).toString()
+            : BigInt(Math.floor(parseFloat(args.amount) * 1e6)).toString(); // USDC has 6 decimals
 
-        const assetInfo = meta.universe[assetIndex];
-        const szDecimals = assetInfo.szDecimals;
-
-        /*//////////////////////////////////////////////////////////////
-                           PRICE CALCULATION
-        //////////////////////////////////////////////////////////////*/
-
-        // Calculate limit price respecting tick size
-        // For buys: price slightly above current (ensures fill)
-        // For sells: price slightly below current (ensures fill)
-        const priceAdjustment = args.side === "buy" ? 1.002 : 0.998; // 0.2% slippage
-        const rawPrice = parseFloat(coinPrice) * priceAdjustment;
-
-        // Determine tick size based on szDecimals
-        // For BTC (szDecimals=5), tick size is $1
-        // For smaller assets, might be $0.1, $0.01, etc.
-        const tickSize =
-          szDecimals >= 5
-            ? 1
-            : szDecimals >= 4
-            ? 0.1
-            : szDecimals >= 3
-            ? 0.01
-            : 0.001;
-        const limitPrice = (Math.round(rawPrice / tickSize) * tickSize).toFixed(
-          szDecimals >= 5 ? 0 : szDecimals >= 4 ? 1 : szDecimals >= 3 ? 2 : 3
-        );
-
-        console.log(`\n📝 Creating ${args.side.toUpperCase()} Order...`);
-        console.log(`   Asset Decimals: ${szDecimals}`);
-        console.log(`   Tick Size: $${tickSize}`);
-        console.log(`   Limit Price: $${limitPrice} (rounded to valid tick)`);
-        console.log(`   Size: ${args.size} ${args.coin}`);
-        console.log(`   Order Type: IoC (Immediate-or-Cancel)`);
-
-        /*//////////////////////////////////////////////////////////////
-                             ORDER PLACEMENT
-        //////////////////////////////////////////////////////////////*/
-
-        // Place order
-        console.log(`\n🚀 Placing Order on Hyperliquid...`);
-
-        const orderResult = await exchClient.order({
-          orders: [
-            {
-              a: assetIndex,
-              b: args.side === "buy",
-              p: limitPrice,
-              s: args.size,
-              r: args.reduceOnly || false,
-              t: {
-                limit: {
-                  tif: "Ioc", // Immediate-or-Cancel for market-like execution
-                },
-              },
+        try {
+          const quote = await relayClient.actions.getQuote({
+            chainId: BASE_CHAIN_ID,
+            toChainId: BASE_CHAIN_ID,
+            currency: fromCurrency,
+            toCurrency: resolvedToken.address,
+            amount: amountInWei,
+            user: account.address,
+            tradeType: "EXACT_INPUT",
+            options: {
+              slippage: args.slippage ? parseFloat(args.slippage) : 2,
             },
-          ],
-          grouping: "na",
-        });
+          });
 
-        console.log(`\n📋 Order Result:`);
-        console.log(JSON.stringify(orderResult, null, 2));
+          console.log(`   ✅ Quote received`);
+          console.log(`   Quote Details:`);
 
-        /*//////////////////////////////////////////////////////////////
-                            RESULT HANDLING
-        //////////////////////////////////////////////////////////////*/
-
-        if (
-          orderResult.response.type === "order" &&
-          orderResult.response.data?.statuses[0]
-        ) {
-          const status = orderResult.response.data.statuses[0];
-
-          if ("filled" in status) {
-            console.log(`\n✅ SUCCESS! Trade Executed!`);
-            console.log(`========================================`);
-            console.log(`   Coin: ${args.coin}`);
-            console.log(`   Side: ${args.side.toUpperCase()}`);
-            console.log(`   Size: ${args.size}`);
-            console.log(
-              `   Avg Fill Price: $${status.filled.avgPx || limitPrice}`
-            );
-            console.log(`   Total Filled: ${status.filled.totalSz}`);
-            console.log(`========================================\n`);
-
-            return JSON.stringify(
-              {
-                success: true,
-                coin: args.coin,
-                side: args.side,
-                size: args.size,
-                leverage: args.leverage,
-                avgFillPrice: status.filled.avgPx,
-                totalFilled: status.filled.totalSz,
-                oid: status.filled.oid,
-                message: `Successfully ${
-                  args.side === "buy" ? "longed" : "shorted"
-                } ${args.size} ${args.coin}`,
-              },
-              null,
-              2
-            );
-          } else if ("error" in status) {
-            console.log(`\n❌ TRADE FAILED!`);
-            console.log(`========================================`);
-            console.log(`   Error: ${status.error}`);
-            console.log(`========================================\n`);
-
-            return JSON.stringify(
-              {
-                success: false,
-                error: status.error,
-                coin: args.coin,
-                side: args.side,
-              },
-              null,
-              2
-            );
-          } else if ("resting" in status) {
-            console.log(`\n⏳ Order Resting on Book`);
-            console.log(`========================================`);
-            console.log(`   Order ID: ${status.resting.oid}`);
-            console.log(`   This order is waiting to be filled`);
-            console.log(`========================================\n`);
-
-            return JSON.stringify(
-              {
-                success: true,
-                status: "resting",
-                oid: status.resting.oid,
-                message: "Order placed and waiting to be filled",
-                coin: args.coin,
-                side: args.side,
-              },
-              null,
-              2
-            );
+          // Log quote details safely
+          if (quote && typeof quote === "object") {
+            const details = quote.details;
+            if (details) {
+              console.log(`      Expected Output: ${details.amountOut || "N/A"}`);
+              console.log(`      Price Impact: ${details.priceImpact || "N/A"}%`);
+            }
           }
+
+          /*//////////////////////////////////////////////////////////////
+                            EXECUTE SWAP
+          //////////////////////////////////////////////////////////////*/
+
+          console.log(`\n🚀 Executing swap on Base chain...`);
+
+          const result = await relayClient.actions.execute({
+            quote,
+            wallet: walletClient,
+          });
+
+          console.log(`\n✅ SUCCESS! Swap Executed!`);
+          console.log(`========================================`);
+          console.log(`   Token: ${resolvedToken.symbol}`);
+          console.log(`   Amount Spent: ${args.amount} ${args.inputCurrency}`);
+          console.log(`   Transaction Hash: ${result}`);
+          console.log(`   Explorer: https://basescan.org/tx/${result}`);
+          console.log(`========================================\n`);
+
+          return JSON.stringify(
+            {
+              success: true,
+              ticker: args.ticker,
+              resolvedToken: {
+                symbol: resolvedToken.symbol,
+                address: resolvedToken.address,
+                name: resolvedToken.name,
+              },
+              inputAmount: args.amount,
+              inputCurrency: args.inputCurrency,
+              transactionHash: result,
+              explorerUrl: `https://basescan.org/tx/${result}`,
+              chain: "Base",
+              message: `Successfully swapped ${args.amount} ${args.inputCurrency} for ${resolvedToken.symbol}`,
+            },
+            null,
+            2
+          );
+        } catch (quoteError: any) {
+          console.error(`\n❌ Quote/Execution failed!`);
+          console.error(`   Error: ${quoteError.message || quoteError}`);
+
+          return JSON.stringify(
+            {
+              success: false,
+              error: quoteError.message || "Quote or execution failed",
+              ticker: args.ticker,
+              details: quoteError.toString(),
+            },
+            null,
+            2
+          );
         }
 
-        console.log(`\n❌ Unexpected response format`);
-        return JSON.stringify(
-          {
-            success: false,
-            error: "Unexpected response from exchange",
-            response: orderResult,
-          },
-          null,
-          2
-        );
-
         /*//////////////////////////////////////////////////////////////
-                             ERROR HANDLING
+                          ERROR HANDLING
         //////////////////////////////////////////////////////////////*/
       } catch (err: any) {
         console.error(`\n❌ EXCEPTION CAUGHT!`);
@@ -502,6 +347,7 @@ export function createTradeCapability(
           {
             error: err?.message || "Unknown error",
             success: false,
+            details: err?.toString(),
           },
           null,
           2

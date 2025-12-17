@@ -1,10 +1,10 @@
 /**
- * Hyperliquid Leverage Trading Agent Server (default port 7380)
+ * Relay Protocol Trading Agent Server (default port 7380)
  *
  * Purpose:
  * - Modular architecture with pluggable capabilities
  * - Auto-registers all capabilities from ./capabilities/
- * - Executes leverage trades on Hyperliquid perpetuals
+ * - Executes token swaps on Base chain using Relay Protocol
  * - Runs as a standalone Node process
  *
  * Run locally:
@@ -14,11 +14,10 @@
  * Env:
  *   OPENSERV_API_KEY          (required)
  *   PORT                      (optional, defaults to 7380)
- *   HYPERLIQUID_TESTNET       (optional, set to 'true' for testnet)
+ *   BASE_RPC_URL              (optional, custom RPC endpoint for Base)
  *
  * Secrets (configured in OpenServ workspace):
- *   HYPERLIQUID_PRIVATE_KEY   (required) - Wallet private key
- *   HYPERLIQUID_VAULT_ADDRESS (optional) - Vault address for trading via vault
+ *   (Any name you choose)     (required) - Wallet private key for Base chain
  *
  * Adding Capabilities:
  *   See ./capabilities/README.md for instructions
@@ -49,7 +48,7 @@ if (!OPENSERV_API_KEY) {
 
 const agent = new Agent({
   systemPrompt:
-    "You are a Hyperliquid leverage trading agent that executes perpetual futures orders.",
+    "You are a Relay Protocol trading agent that executes token swaps on Base chain. You can swap ETH or USDC for any token using natural language (e.g., 'Buy $SERV with 0.1 ETH'). You automatically resolve token tickers to contract addresses.",
   apiKey: OPENSERV_API_KEY,
 });
 
@@ -81,16 +80,13 @@ async function main() {
   //////////////////////////////////////////////////////////////*/
 
   console.log("\n========================================");
-  console.log("⚡ HYPERLIQUID TRADING AGENT");
+  console.log("⚡ RELAY PROTOCOL TRADING AGENT");
   console.log("========================================");
   console.log("📋 Configuration:");
   console.log(`   PORT: ${process.env.PORT || "7380 (default)"}`);
   console.log(`   OPENSERV_API_KEY: ${OPENSERV_API_KEY.substring(0, 8)}...`);
-  console.log(
-    `   HYPERLIQUID_TESTNET: ${
-      process.env.HYPERLIQUID_TESTNET || "false (mainnet)"
-    }`
-  );
+  console.log(`   CHAIN: Base (Chain ID: 8453)`);
+  console.log(`   BASE_RPC_URL: ${process.env.BASE_RPC_URL || "default"}`);
   console.log("========================================\n");
 
   /*//////////////////////////////////////////////////////////////

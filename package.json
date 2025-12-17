@@ -1,19 +1,27 @@
 {
-  "name": "hyperliquid-agent",
+  "name": "relay-protocol-agent",
   "version": "1.0.0",
-  "description": "Standalone OpenServ agent for Hyperliquid leverage trading",
+  "description": "Standalone OpenServ agent for token swaps using Relay Protocol on Base",
   "type": "module",
   "main": "agent-server.ts",
   "scripts": {
     "start": "tsx agent-server.ts",
     "dev": "tsx watch agent-server.ts"
   },
-  "keywords": ["openserv", "agent", "hyperliquid", "leverage", "trading"],
+  "keywords": [
+    "openserv",
+    "agent",
+    "relay",
+    "protocol",
+    "trading",
+    "base"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@openserv-labs/sdk": "latest",
-    "@nktkas/hyperliquid": "latest",
+    "@relayprotocol/relay-sdk": "latest",
+    "viem": "latest",
     "dotenv": "latest",
     "zod": "latest"
   },
@@ -23,4 +31,3 @@
     "typescript": "latest"
   }
 }
-
